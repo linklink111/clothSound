@@ -22,6 +22,7 @@ ball_center[0] = [0, 0, 0]
 x = ti.Vector.field(3, dtype=float, shape=(n, n))
 v = ti.Vector.field(3, dtype=float, shape=(n, n))
 acc = ti.Vector.field(3,dtype=float, shape=(n,n))
+last_acc = ti.Vector.field(3,dtype=float, shape=(n,n))
 last_v = ti.Vector.field(3, dtype=float,shape = (n,n))
 sound_time = ti.field(dtype=float, shape=(n, n))
 sound_pressure = ti.field(dtype=float, shape=(n, n))
@@ -87,6 +88,7 @@ def substep():
         v[i] += gravity * dt
 
     for i in ti.grouped(x):
+        last_acc[i] = acc[i]
         force = ti.Vector([0.0, 0.0, 0.0])
         for spring_offset in ti.static(spring_offsets):
             j = i + spring_offset
@@ -119,7 +121,7 @@ def substep():
         sound_speed = 343.0  # 假设声速为343 m/s，可根据实际情况调整
         sound_time[i] = sound_time[i] + distance_to_listener / sound_speed + dt
         omega = 2 * math.pi / wavelength_acc  # 假设波长已知，可根据实际情况调整
-        A1 = acc[i]  # the amplitude of moving noise
+        A1 = acc[i]-last_acc[i]  # the amplitude of moving noise
         # A2 = v_curr   # the amplitude of friction noise
 
         phi_x = 0.0  # 可根据实际情况调整相位
@@ -138,6 +140,19 @@ def substep():
 def update_vertices():
     for i, j in ti.ndrange(n, n):
         vertices[i * n + j] = x[i, j]
+
+def sliding_window_sum(data, window_size):
+    window_samples = int(window_size * len(data))
+    merged_data = []
+
+    for i in range(0, len(data), window_samples):
+        start_idx = max(0, i)
+        end_idx = min(len(data), i + window_samples)
+        merged_data.append(np.sum(data[start_idx:end_idx]))
+
+    return np.array(merged_data)
+
+
 
 window = ti.ui.Window("Taichi Cloth Simulation on GGUI", (1024, 1024),
                       vsync=True)
@@ -170,7 +185,9 @@ while window.running:
         audio_buffer = np.append(audio_buffer, sorted_combined_data[:, 1])
         current_t += dt
         # Play the audio if the buffer reaches a certain size (e.g., every 0.1 seconds)
-        if len(audio_buffer) >= sample_rate // 10:
+        if len(audio_buffer) >= sample_rate // 100:
+            # audio_buffer = sliding_window_sum(audio_buffer,0.01)
+            audio_buffer /= max(audio_buffer.min(), audio_buffer.max()) * 1.05
             # Convert audio_buffer to a two-dimensional array
             audio_buffer_2d = np.expand_dims(audio_buffer, axis=0)
 
