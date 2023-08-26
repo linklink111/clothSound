@@ -180,7 +180,7 @@ def merge_t(sorted_t, sorted_pressure, interval):
             merged_t.append(sorted_t[i])
             merged_pressure.append(accumulated_pressure)
             accumulated_pressure = sorted_pressure[i]
-
+    print(len(merged_t)) #这里输出的值大概是200000就比较好
     return np.array(merged_t), np.array(merged_pressure)
 def load_array(file_path):
     with open(file_path, 'r') as f:
@@ -321,14 +321,16 @@ while window.running:
         result_pressure = sorted_all_pressure
         result_t = sorted_all_t - sorted_all_t[0]
 
-        eps = 0.00001  # 设置合并时间间隔
-        result_t, result_pressure = merge_t(result_t, result_pressure, eps)
+        
 
         target_t = -1
-        scale = 0.02
+        scale = 0.01
         if target_t > 0:
             scale = result_t / target_t
         result_t /= scale
+
+        eps = 0.00000001  # 设置合并时间间隔
+        result_t, result_pressure = merge_t(result_t, result_pressure, eps)
 
         audio = np.interp(
             np.arange(0, result_t[-1], 1/sample_rate), result_t, result_pressure)
