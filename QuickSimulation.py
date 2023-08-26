@@ -257,7 +257,12 @@ sample_rate = 44100
 channels = 1
 audio_buffer = np.array([], dtype=float)
 total_steps = 0
+sub_steps_cnt = 0
 restore_steps = 0
+
+pressure_cache = np.array([])
+t_cache = np.array([])
+
 while window.running:
     # if current_t > 1.5:
     #     # Reset
@@ -266,19 +271,45 @@ while window.running:
     
     if total_steps > 5000:
         break
+    sub_steps_cnt+=1
     for i in range(substeps):
         substep()
         total_steps += 1
-        if i%4 == 0:
-            restore_steps += 1
-            # 将sound_time, sound_pressure写到cache目录下t_1,2,...,pressure1,2,...的txt文件
-            # 将sound_time, sound_pressure写到cache目录下t_1,2,...,pressure1,2,...的txt文件
-            t_filename = f"cache/t_{restore_steps}.txt"
-            pressure_filename = f"cache/pressure{restore_steps}.txt"
-            
-            np.savetxt(t_filename, sound_time.to_numpy(), delimiter=',')
-            np.savetxt(pressure_filename, sound_pressure.to_numpy(), delimiter=',')
         current_t+=dt
+        pressure = sound_pressure.to_numpy().flatten()
+        t = sound_time.to_numpy().flatten()
+        pressure_cache = np.append(pressure_cache,pressure)
+        t_cache = np.append(t_cache,t)
+
+        print(pressure.shape)
+        print(pressure_cache.shape)
+    # break 128x128的布料在 每个substep产生868353长度的cache
+    encode_gap = 10
+    if sub_steps_cnt%encode_gap == 0:
+        sort_index = np.argsort(t_cache)
+        sorted_all_pressure = pressure_cache[sort_index]
+        sorted_all_t = t_cache[sort_index]
+
+        result_pressure = sorted_all_pressure
+        result_t = sorted_all_t
+
+        eps = 0.00001  # 设置合并时间间隔
+        # result_t, result_pressure = merge_t(sorted_all_t, sorted_all_pressure, eps)
+
+        #result_pressure, result_t = merge_t(sorted_all_t,sorted_all_pressure,eps)
+        target_t = -1
+        scale = 1.0
+        if target_t > 0:
+            scale = result_t / target_t
+        result_t /= scale
+
+        audio = np.interp(
+            np.arange(0, result_t[-1], 1/sample_rate), result_t, result_pressure)
+        audio = audio / np.max(np.abs(audio))
+        wavfile.write(f"output{sub_steps_cnt//encode_gap}.wav", sample_rate,
+            (audio * (2**15-1)).astype(np.int16))
+        pressure_cache = np.array([])
+        t_cache = np.array([])
     update_vertices()
 
     camera.position(0.0, 0.0, 3)
