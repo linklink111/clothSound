@@ -15,6 +15,7 @@ n = 128
 quad_size = 1.0 / n
 dt = 4e-2 / n
 substeps = int(1 / 60 // dt)
+current_t = 0.0
 
 gravity = ti.Vector([0, -9.8, 0])
 spring_Y = 3e4
@@ -125,7 +126,7 @@ def substep():
         wavelength_acc = 0.1 # wave length for acclerating noise
         distance_to_listener = (x[i] - listener).norm()
         sound_speed = 343.0  # 假设声速为343 m/s，可根据实际情况调整
-        t_curr = sound_time[i] + distance_to_listener / sound_speed + dt
+        t_curr = distance_to_listener / sound_speed + current_t
         omega = 2 * math.pi / wavelength_acc  # 假设波长已知，可根据实际情况调整
         # A1 = (acc[i]-last_acc[i])/dt  # the amplitude of moving noise
         A1 = (v[i]-last_v[i])/dt  # the amplitude of moving noise
@@ -165,7 +166,22 @@ def interpolate_audio(sound_time, sound_pressure, target_time):
     interp_func = interp1d(sound_time, sound_pressure, kind='linear', fill_value="extrapolate")
     interpolated_pressure = interp_func(target_time)
     return interpolated_pressure
+def merge_t(sorted_t, sorted_pressure, interval):
+    merged_t = [sorted_t[0]]
+    merged_pressure = [sorted_pressure[0]]
+    accumulated_pressure = sorted_pressure[0]
 
+    for i in range(1, len(sorted_t)):
+        time_diff = sorted_t[i] - sorted_t[i - 1]
+
+        if time_diff <= interval:
+            accumulated_pressure += sorted_pressure[i]
+        else:
+            merged_t.append(sorted_t[i])
+            merged_pressure.append(accumulated_pressure)
+            accumulated_pressure = sorted_pressure[i]
+
+    return np.array(merged_t), np.array(merged_pressure)
 def load_array(file_path):
     with open(file_path, 'r') as f:
         lines = f.readlines()
@@ -249,7 +265,7 @@ canvas.set_background_color((1, 1, 1))
 scene = ti.ui.Scene()
 camera = ti.ui.Camera()
 
-current_t = 0.0
+
 initialize_mass_points()
 
 # Initialize the audio buffer
@@ -268,8 +284,20 @@ while window.running:
     #     # Reset
     #     initialize_mass_points()
     #     current_t = 0
+    print(current_t)
     
     if total_steps > 5000:
+        # 初始化一个空的音轨数组
+        merged_audio = np.array([])
+
+        # 循环读取每个音轨并合并
+        for i in range(1, sub_steps_cnt//encode_gap):
+            filename = f"output{i}.wav"
+            audio, _ = sf.read(filename)
+            merged_audio = np.concatenate((merged_audio, audio))
+
+        # 将合并后的音轨保存为新的音频文件
+        sf.write("merged_output.wav", merged_audio, sample_rate)
         break
     sub_steps_cnt+=1
     for i in range(substeps):
@@ -281,8 +309,8 @@ while window.running:
         pressure_cache = np.append(pressure_cache,pressure)
         t_cache = np.append(t_cache,t)
 
-        print(pressure.shape)
-        print(pressure_cache.shape)
+        # print(pressure.shape)
+        # print(pressure_cache.shape)
     # break 128x128的布料在 每个substep产生868353长度的cache
     encode_gap = 10
     if sub_steps_cnt%encode_gap == 0:
@@ -291,14 +319,13 @@ while window.running:
         sorted_all_t = t_cache[sort_index]
 
         result_pressure = sorted_all_pressure
-        result_t = sorted_all_t
+        result_t = sorted_all_t - sorted_all_t[0]
 
         eps = 0.00001  # 设置合并时间间隔
-        # result_t, result_pressure = merge_t(sorted_all_t, sorted_all_pressure, eps)
+        result_t, result_pressure = merge_t(result_t, result_pressure, eps)
 
-        #result_pressure, result_t = merge_t(sorted_all_t,sorted_all_pressure,eps)
         target_t = -1
-        scale = 1.0
+        scale = 0.02
         if target_t > 0:
             scale = result_t / target_t
         result_t /= scale
