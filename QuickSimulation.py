@@ -5,6 +5,8 @@ import numpy as np
 import wavefile as wf
 import soundfile as sf
 from scipy.interpolate import interp1d
+from scipy.signal import butter, lfilter
+from scipy.io import wavfile
 import wave
 import math
 ti.init(arch=ti.vulkan)  # Alternatively, ti.init(arch=ti.cpu)
@@ -164,7 +166,82 @@ def interpolate_audio(sound_time, sound_pressure, target_time):
     interpolated_pressure = interp_func(target_time)
     return interpolated_pressure
 
+def load_array(file_path):
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+    float_list = [float(x.strip()) for x in lines]
+    return np.array(float_list)
 
+def butter_lowpass(cutoff, fs, order=5):
+    nyquist = 0.5 * fs
+    normal_cutoff = cutoff / nyquist
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return b, a
+
+def butter_lowpass_filter(data, cutoff, fs, order=5):
+    b, a = butter_lowpass(cutoff, fs, order=order)
+    y = lfilter(b, a, data)
+    return y
+def butter_highpass(cutoff, fs, order=5):
+    nyquist = 0.5 * fs
+    normal_cutoff = cutoff / nyquist
+    b, a = butter(order, normal_cutoff, btype='high', analog=False)
+    return b, a
+
+def butter_highpass_filter(data, cutoff, fs, order=5):
+    b, a = butter_highpass(cutoff, fs, order=order)
+    y = lfilter(b, a, data)
+    return y
+def make_audio(fname, start, end, target_t=-1, high_cut=800, low_cut=-1, scale=1.0):
+    all_audio = np.array([])
+    sample_rate = 44100
+
+    all_pressure = np.array([])
+    all_t = np.array([])
+    for i in range(start, end):
+        #        pressure = load_array(f"sheetResearch/soundData/pressure_frame{i}.txt")
+        #        t = load_array(f"sheetResearch/soundData/t_frame{i}.txt")
+        pressure = load_array(f"pressures/pressure_frame{i}.txt")
+        t = load_array(f"ts/t_frame{i}.txt")
+        all_pressure = np.concatenate((all_pressure, pressure))
+        all_t = np.concatenate((all_t, t))
+
+    sort_index = np.argsort(all_t)
+    sorted_all_pressure = all_pressure[sort_index]
+    sorted_all_t = all_t[sort_index]
+
+    #eps = 0.0001
+
+    result_pressure = sorted_all_pressure
+    result_t = sorted_all_t
+
+    eps = 0.00001  # 设置合并时间间隔
+    # result_t, result_pressure = merge_t(sorted_all_t, sorted_all_pressure, eps)
+
+    #result_pressure, result_t = merge_t(sorted_all_t,sorted_all_pressure,eps)
+    if target_t > 0:
+        scale = result_t / target_t
+    result_t /= scale
+
+    audio = np.interp(
+        np.arange(0, result_t[-1], 1/sample_rate), result_t, result_pressure)
+    audio = audio / np.max(np.abs(audio))
+    # Apply the low-pass filter
+    cutoff = high_cut  # The cutoff frequency
+    order = 6  # The order of the filter
+    if high_cut > 0:
+        audio = butter_lowpass_filter(audio, cutoff, sample_rate, order)
+    #original_audio = audio
+    #new_audio = original_audio[::3]
+
+    # Apply the high-pass filter
+    cutoff = low_cut  # The cutoff frequency
+    order = 6  # The order of the filter
+    if low_cut > 0:
+        audio = butter_highpass_filter(audio, cutoff, sample_rate, order)
+
+    wavfile.write(f"output_audio/{fname}.wav", sample_rate,
+          (audio * (2**15-1)).astype(np.int16))
 window = ti.ui.Window("Taichi Cloth Simulation on GGUI", (1024, 1024),
                       vsync=True)
 canvas = window.get_canvas()
@@ -179,64 +256,29 @@ initialize_mass_points()
 sample_rate = 44100
 channels = 1
 audio_buffer = np.array([], dtype=float)
-
+total_steps = 0
+restore_steps = 0
 while window.running:
-    if current_t > 1.5:
-        # Reset
-        initialize_mass_points()
-        current_t = 0
-
+    # if current_t > 1.5:
+    #     # Reset
+    #     initialize_mass_points()
+    #     current_t = 0
+    
+    if total_steps > 5000:
+        break
     for i in range(substeps):
         substep()
-        # Combine sound_time and sound_pressure arrays
-        combined_data = np.column_stack((sound_time.to_numpy(), sound_pressure.to_numpy()))
-        # Sort combined_data based on the first column (sound_time)
-        sorted_combined_data = combined_data[combined_data[:, 0].argsort()]
-        # 从排序后的数据中获取声压数据和时间数据
-        sorted_sound_time = sorted_combined_data[:, 0]
-        sorted_sound_pressure = sorted_combined_data[:, 1]
-
-        # 计算 sorted_sound_time 的总持续时间
-        total_duration = sorted_sound_time[-1] - sorted_sound_time[0]
-        target_duration = total_duration/500
-
-        # 构造等距分布的目标时间，从 0 到 total_duration
-        target_time = np.linspace(0, target_duration, int(target_duration*sample_rate))
-        target_time += sorted_sound_time[0]
-
-        # 对声压数据进行插值
-        # 使用 interp1d 进行线性插值
-        interp_func = interp1d(sorted_sound_time, sorted_sound_pressure, kind='linear')
-        interpolated_pressure = interp_func(target_time)
-
-        # 将插值结果追加到音频缓冲区
-        audio_buffer = np.append(audio_buffer, interpolated_pressure)
-        current_t += dt
-        # Play the audio if the buffer reaches a certain size (e.g., every 0.1 seconds)
-        if len(audio_buffer) >= sample_rate // 1.0:
-            # audio_buffer = sliding_window_sum(audio_buffer, 0.0001)
-            # audio_buffer /= max(audio_buffer.min(), audio_buffer.max()) * 1.05
-
-            # Append audio_buffer to existing or create new WAV file
-            if os.path.exists("output.wav"):
-                mode = 'r+'
-                with sf.SoundFile("output.wav", mode=mode) as audio_file:
-                    audio_file.seek(0, sf.SEEK_END)
-                    # Convert audio_buffer to int16 type
-                    audio_buffer_int16 = (audio_buffer * 32767).astype(np.int16)
-                    # Write audio_buffer to the SoundFile object
-                    audio_file.write(audio_buffer_int16)
-            else:
-                mode = 'w'
-                with sf.SoundFile("output.wav", mode=mode, samplerate=sample_rate, channels=channels,format='wav') as audio_file:
-                    # Convert audio_buffer to int16 type
-                    audio_buffer_int16 = (audio_buffer * 32767).astype(np.int16)
-                    # Write audio_buffer to the SoundFile object
-                    audio_file.write(audio_buffer_int16)
-
-            # Clear the audio buffer
-            audio_buffer = np.array([], dtype=float)
-
+        total_steps += 1
+        if i%4 == 0:
+            restore_steps += 1
+            # 将sound_time, sound_pressure写到cache目录下t_1,2,...,pressure1,2,...的txt文件
+            # 将sound_time, sound_pressure写到cache目录下t_1,2,...,pressure1,2,...的txt文件
+            t_filename = f"cache/t_{restore_steps}.txt"
+            pressure_filename = f"cache/pressure{restore_steps}.txt"
+            
+            np.savetxt(t_filename, sound_time.to_numpy(), delimiter=',')
+            np.savetxt(pressure_filename, sound_pressure.to_numpy(), delimiter=',')
+        current_t+=dt
     update_vertices()
 
     camera.position(0.0, 0.0, 3)
