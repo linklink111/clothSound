@@ -128,8 +128,8 @@ def substep():
         sound_speed = 343.0  # 假设声速为343 m/s，可根据实际情况调整
         t_curr = distance_to_listener / sound_speed + current_t
         omega = 2 * math.pi / wavelength_acc  # 假设波长已知，可根据实际情况调整
-        # A1 = (acc[i]-last_acc[i])/dt  # the amplitude of moving noise
-        A1 = (v[i]-last_v[i])/dt  # the amplitude of moving noise
+        A1 = (acc[i]-last_acc[i])/dt  # the amplitude of moving noise
+        # A1 = (v[i]-last_v[i])/dt  # the amplitude of moving noise
         # A2 = v_curr   # the amplitude of friction noise
 
         phi_x = 0.0  # 可根据实际情况调整相位
@@ -324,7 +324,7 @@ while window.running:
         
 
         target_t = -1
-        scale = 0.01
+        scale = 0.004
         if target_t > 0:
             scale = result_t / target_t
         result_t /= scale
