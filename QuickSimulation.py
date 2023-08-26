@@ -1,7 +1,11 @@
 import taichi as ti
+import os
 import simpleaudio as sa
 import numpy as np
 import wavefile as wf
+import soundfile as sf
+from scipy.interpolate import interp1d
+import wave
 import math
 ti.init(arch=ti.vulkan)  # Alternatively, ti.init(arch=ti.cpu)
 
@@ -119,9 +123,10 @@ def substep():
         wavelength_acc = 0.1 # wave length for acclerating noise
         distance_to_listener = (x[i] - listener).norm()
         sound_speed = 343.0  # 假设声速为343 m/s，可根据实际情况调整
-        sound_time[i] = sound_time[i] + distance_to_listener / sound_speed + dt
+        t_curr = sound_time[i] + distance_to_listener / sound_speed + dt
         omega = 2 * math.pi / wavelength_acc  # 假设波长已知，可根据实际情况调整
-        A1 = acc[i]-last_acc[i]  # the amplitude of moving noise
+        # A1 = (acc[i]-last_acc[i])/dt  # the amplitude of moving noise
+        A1 = (v[i]-last_v[i])/dt  # the amplitude of moving noise
         # A2 = v_curr   # the amplitude of friction noise
 
         phi_x = 0.0  # 可根据实际情况调整相位
@@ -129,11 +134,13 @@ def substep():
         phi_z = 0.0  # 可根据实际情况调整相位
 
         # 计算三维正弦波的声压
-        px = A1.x * ti.sin(x[i].x - omega * sound_time[i] + phi_x)
-        py = A1.y * ti.sin(x[i].y - omega * sound_time[i] + phi_y)
-        pz = A1.z * ti.sin(x[i].z - omega * sound_time[i] + phi_z)
+         # 计算三维正弦波的声压
+        px = A1.x * ti.sin(x[i].x - omega * t_curr + phi_x)
+        py = A1.y * ti.sin(x[i].y - omega * t_curr + phi_y)
+        pz = A1.z * ti.sin(x[i].z - omega * t_curr + phi_z)
         wave_effect = ti.Vector([px, py, pz])
         sound_pressure[i] = (x[i] - listener).dot(wave_effect)
+        sound_time[i] = t_curr
         pass
 
 @ti.kernel
@@ -152,6 +159,10 @@ def sliding_window_sum(data, window_size):
 
     return np.array(merged_data)
 
+def interpolate_audio(sound_time, sound_pressure, target_time):
+    interp_func = interp1d(sound_time, sound_pressure, kind='linear', fill_value="extrapolate")
+    interpolated_pressure = interp_func(target_time)
+    return interpolated_pressure
 
 
 window = ti.ui.Window("Taichi Cloth Simulation on GGUI", (1024, 1024),
@@ -181,25 +192,51 @@ while window.running:
         combined_data = np.column_stack((sound_time.to_numpy(), sound_pressure.to_numpy()))
         # Sort combined_data based on the first column (sound_time)
         sorted_combined_data = combined_data[combined_data[:, 0].argsort()]
-        # Append sorted sound_pressure data to audio_buffer
-        audio_buffer = np.append(audio_buffer, sorted_combined_data[:, 1])
+        # 从排序后的数据中获取声压数据和时间数据
+        sorted_sound_time = sorted_combined_data[:, 0]
+        sorted_sound_pressure = sorted_combined_data[:, 1]
+
+        # 计算 sorted_sound_time 的总持续时间
+        total_duration = sorted_sound_time[-1] - sorted_sound_time[0]
+        target_duration = total_duration/500
+
+        # 构造等距分布的目标时间，从 0 到 total_duration
+        target_time = np.linspace(0, target_duration, int(target_duration*sample_rate))
+        target_time += sorted_sound_time[0]
+
+        # 对声压数据进行插值
+        # 使用 interp1d 进行线性插值
+        interp_func = interp1d(sorted_sound_time, sorted_sound_pressure, kind='linear')
+        interpolated_pressure = interp_func(target_time)
+
+        # 将插值结果追加到音频缓冲区
+        audio_buffer = np.append(audio_buffer, interpolated_pressure)
         current_t += dt
         # Play the audio if the buffer reaches a certain size (e.g., every 0.1 seconds)
-        if len(audio_buffer) >= sample_rate // 100:
-            # audio_buffer = sliding_window_sum(audio_buffer,0.01)
-            audio_buffer /= max(audio_buffer.min(), audio_buffer.max()) * 1.05
-            # Convert audio_buffer to a two-dimensional array
-            audio_buffer_2d = np.expand_dims(audio_buffer, axis=0)
+        if len(audio_buffer) >= sample_rate // 1.0:
+            # audio_buffer = sliding_window_sum(audio_buffer, 0.0001)
+            # audio_buffer /= max(audio_buffer.min(), audio_buffer.max()) * 1.05
 
-            # Create a WaveFile object and write audio buffer to it
-            audio_file = wf.WaveWriter("output.wav", channels=channels, samplerate=sample_rate)
-            audio_file.write(audio_buffer_2d)
-            
-            # Play the audio using simpleaudio
-            play_obj = sa.play_buffer(audio_buffer.tobytes(), channels, 2, sample_rate)
-            
+            # Append audio_buffer to existing or create new WAV file
+            if os.path.exists("output.wav"):
+                mode = 'r+'
+                with sf.SoundFile("output.wav", mode=mode) as audio_file:
+                    audio_file.seek(0, sf.SEEK_END)
+                    # Convert audio_buffer to int16 type
+                    audio_buffer_int16 = (audio_buffer * 32767).astype(np.int16)
+                    # Write audio_buffer to the SoundFile object
+                    audio_file.write(audio_buffer_int16)
+            else:
+                mode = 'w'
+                with sf.SoundFile("output.wav", mode=mode, samplerate=sample_rate, channels=channels,format='wav') as audio_file:
+                    # Convert audio_buffer to int16 type
+                    audio_buffer_int16 = (audio_buffer * 32767).astype(np.int16)
+                    # Write audio_buffer to the SoundFile object
+                    audio_file.write(audio_buffer_int16)
+
             # Clear the audio buffer
             audio_buffer = np.array([], dtype=float)
+
     update_vertices()
 
     camera.position(0.0, 0.0, 3)
