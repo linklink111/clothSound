@@ -146,6 +146,7 @@ def substep():
         wave_effect = ti.Vector([px, py, pz])
         normal_vec = x[i] - listener 
         sound_pressure[i] = (normal_vec/normal_vec.norm()).dot(wave_effect)/(4*PI*c*normal_vec.norm()) # p = frac{\mathbf{r} \dot \frac{da}{dt}}{4 \pi c r} 
+        # 如果不除以这些与空气相关的参数的话，产生的声音会大得离谱
         sound_time[i] = t_curr
         pass
 
