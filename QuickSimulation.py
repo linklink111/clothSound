@@ -6,12 +6,14 @@ import wavefile as wf
 import soundfile as sf
 from scipy.interpolate import interp1d
 from scipy.signal import butter, lfilter
+from scipy.signal import savgol_filter
 from scipy.io import wavfile
 import wave
 import math
 ti.init(arch=ti.vulkan)  # Alternatively, ti.init(arch=ti.cpu)
 
 n = 128
+PI = 3.1415926535897
 quad_size = 1.0 / n
 dt = 4e-2 / n
 substeps = int(1 / 60 // dt)
@@ -125,8 +127,8 @@ def substep():
     for i in ti.grouped(x):
         wavelength_acc = 0.1 # wave length for acclerating noise
         distance_to_listener = (x[i] - listener).norm()
-        sound_speed = 343.0  # 假设声速为343 m/s，可根据实际情况调整
-        t_curr = distance_to_listener / sound_speed + current_t
+        c = 343.0  # 假设声速为343 m/s，可根据实际情况调整
+        t_curr = distance_to_listener / c + current_t
         omega = 2 * math.pi / wavelength_acc  # 假设波长已知，可根据实际情况调整
         A1 = (acc[i]-last_acc[i])/dt  # the amplitude of moving noise
         # A1 = (v[i]-last_v[i])/dt  # the amplitude of moving noise
@@ -142,7 +144,8 @@ def substep():
         py = A1.y * ti.sin(x[i].y - omega * t_curr + phi_y)
         pz = A1.z * ti.sin(x[i].z - omega * t_curr + phi_z)
         wave_effect = ti.Vector([px, py, pz])
-        sound_pressure[i] = (x[i] - listener).dot(wave_effect)
+        normal_vec = x[i] - listener 
+        sound_pressure[i] = (normal_vec/normal_vec.norm()).dot(wave_effect)/(4*PI*c*normal_vec.norm()) # p = frac{\mathbf{r} \dot \frac{da}{dt}}{4 \pi c r} 
         sound_time[i] = t_curr
         pass
 
@@ -334,8 +337,9 @@ while window.running:
 
         audio = np.interp(
             np.arange(0, result_t[-1], 1/sample_rate), result_t, result_pressure)
-        audio = audio / np.max(np.abs(audio))
-        # audio = audio / 3000
+        print(np.max(np.abs(audio)))
+        # audio = audio / np.max(np.abs(audio))
+        audio = audio / 5000
         audio = butter_lowpass_filter(audio, cutoff=2000, fs=sample_rate, order=6)
         wavfile.write(f"output{sub_steps_cnt//encode_gap}.wav", sample_rate,
             (audio * (2**15-1)).astype(np.int16))
