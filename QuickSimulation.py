@@ -323,10 +323,10 @@ while window.running:
 
         
 
-        target_t = -1
+        target_t = 4.00
         scale = 0.004
         if target_t > 0:
-            scale = result_t / target_t
+            scale = result_t[-1] / (target_t/encode_gap)
         result_t /= scale
 
         eps = 0.00000001  # 设置合并时间间隔
@@ -335,6 +335,8 @@ while window.running:
         audio = np.interp(
             np.arange(0, result_t[-1], 1/sample_rate), result_t, result_pressure)
         audio = audio / np.max(np.abs(audio))
+        # audio = audio / 3000
+        audio = butter_lowpass_filter(audio, cutoff=2000, fs=sample_rate, order=6)
         wavfile.write(f"output{sub_steps_cnt//encode_gap}.wav", sample_rate,
             (audio * (2**15-1)).astype(np.int16))
         pressure_cache = np.array([])
@@ -355,4 +357,5 @@ while window.running:
     # Draw a smaller ball to avoid visual penetration
     scene.particles(ball_center, radius=ball_radius * 0.95, color=(0.5, 0.42, 0.8))
     canvas.scene(scene)
+    window.save_image(f'frame/{sub_steps_cnt:04d}.png')
     window.show()

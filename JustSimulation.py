@@ -312,5 +312,5 @@ while window.running:
     # Draw a smaller ball to avoid visual penetration
     scene.particles(ball_center, radius=ball_radius * 0.95, color=(0.5, 0.42, 0.8))
     canvas.scene(scene)
-    window.save_image(f'frame/{sub_steps_cnt:04d}.png')
+    window.save_image(f'justVisual_frame/{sub_steps_cnt:04d}.png')
     window.show()
