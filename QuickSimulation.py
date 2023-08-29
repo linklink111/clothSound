@@ -316,7 +316,7 @@ while window.running:
         # print(pressure.shape)
         # print(pressure_cache.shape)
     # break 128x128的布料在 每个substep产生868353长度的cache
-    encode_gap = 20
+    encode_gap = 10
     if sub_steps_cnt%encode_gap == 0:
         sort_index = np.argsort(t_cache)
         sorted_all_pressure = pressure_cache[sort_index]
@@ -333,11 +333,10 @@ while window.running:
             scale = result_t[-1] / (target_t/encode_gap)
         result_t /= scale
 
-        eps = 0.00000001  # 设置合并时间间隔
-        result_t, result_pressure = merge_t(result_t, result_pressure, eps)
-
+        # eps = 0.00000001  # 设置合并时间间隔
+        # result_t, result_pressure = merge_t(result_t, result_pressure, eps)
         audio = np.interp(
-            np.arange(0, result_t[-1], 1/sample_rate), result_t, result_pressure)
+            np.arange(0, result_t[-1], result_t[-1] * (1/sample_rate)), result_t, result_pressure)  # result_t[-1] * (1/sample_rate), 先前只有1/sample_rate是错误的
         
         print(np.max(np.abs(audio)))
         # audio = audio / np.max(np.abs(audio))
