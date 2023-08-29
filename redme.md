@@ -13,4 +13,5 @@ Granular based cloth sound simulation.
 1. merge_t
 2. 基于粒子的
 3. 快速的（接近实时的）
-4. 可以捕获关键的碰撞状态的9
+4. 可以捕获关键的碰撞状态的
+5. 分段编码时对于声音传播时间大于dt问题的处理

@@ -1,3 +1,5 @@
 cache/
 frame/
 justVisual_frame/
+output*.wav
+*.csv
