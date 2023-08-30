@@ -1,5 +1,6 @@
 cache/
 frame/
 justVisual_frame/
+blender/
 output*.wav
 *.csv
