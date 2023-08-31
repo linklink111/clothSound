@@ -3,6 +3,7 @@ from difference import interpolate_x, get_v, get_a, get_da
 import matplotlib.pyplot as plt
 import numpy as np
 from math import cos
+from scipy.io import wavfile
 
 
 def write_vertices_to_file(file_path, vertices):
@@ -30,7 +31,7 @@ if __name__ == "__main__":
     write_vertices_to_file(mdd_output_file_path, vertices)
     
     dt0 = 1/24
-    dt1 = 0.0001*1/24 #  但是好像dt0和dt1差距可能会有点大...
+    dt1 = 0.0001*1/24 #  但是好像dt0和dt1差距可能会有点大... 
     # vertices /= 1e38 # 有时候由于建模或单位的原因x可能有点大，这里换算一下（blender中的单位是cm）
     x = interpolate_x(vertices, dt0, dt1)
     num_particle = x.shape[1]
@@ -38,6 +39,14 @@ if __name__ == "__main__":
     # x /= 1000000 
     v = get_v(x, dt1)
     a = get_a(v, dt1) 
+    # 对a进行一个数据清洗，把远远大于平均值的数据写为0
+    mean_value = np.mean(a)
+    threshold = mean_value*5
+    for i in range(a.shape[0]):
+        for j in range(a.shape[1]):
+            if np.any(a[i,j]) > threshold:
+                a[i,j] = np.zeros(3)
+
     da = get_da(a, dt1)
 
     c = 340
@@ -66,6 +75,12 @@ if __name__ == "__main__":
         sample_rate = 44100
         audio = np.interp(np.arange(0, num_frames*1/24, dt1),t,p)
         all_audio += audio
+
+    all_audio /= max(-min(all_audio),max(all_audio))*1.05
+    wavfile.write(f"shakeCloth.wav", sample_rate,
+          (audio * (2**15-1)).astype(np.int16))
+
+
         
 
          
